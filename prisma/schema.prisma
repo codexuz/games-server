@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Teacher {
+  id        String        @id @default(uuid())
+  email     String        @unique
+  name      String
+  password  String
+  createdAt DateTime      @default(now())
+  quizzes   Quiz[]
+  sessions  GameSession[]
+}
+
+model Quiz {
+  id           String        @id @default(uuid())
+  title        String
+  category     String?
+  teacherId    String
+  teacher      Teacher       @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  questions    Question[]
+  sessions     GameSession[]
+  analytics    QuizAnalytics?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([teacherId])
+  @@index([category])
+}
+
+model Question {
+  id        String   @id @default(uuid())
+  text      String
+  options   String[]
+  correct   Int
+  timeLimit Int      @default(20000)
+  order     Int      @default(0)
+  quizId    String
+  quiz      Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@index([quizId])
+}
+
+// ── Analytics & Leaderboard ────────────────────────────────────────────────
+
+model GameSession {
+  id            String         @id @default(uuid())
+  roomCode      String
+  quizId        String
+  quiz          Quiz           @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  teacherId     String?
+  teacher       Teacher?       @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  playerCount   Int
+  playerResults PlayerResult[]
+  playedAt      DateTime       @default(now())
+
+  @@index([quizId])
+  @@index([teacherId])
+  @@index([playedAt])
+}
+
+model PlayerResult {
+  id              String      @id @default(uuid())
+  sessionId       String
+  session         GameSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  playerName      String
+  score           Int
+  rank            Int
+  correctAnswers  Int
+  totalQuestions  Int
+  avgAnswerTimeMs Int
+  playedAt        DateTime    @default(now())
+
+  @@index([sessionId])
+  @@index([score])
+  @@index([playerName])
+}
+
+// Aggregated stats per quiz — upserted after every game
+model QuizAnalytics {
+  id               String   @id @default(uuid())
+  quizId           String   @unique
+  quiz             Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  timesPlayed      Int      @default(0)
+  totalPlayers     Int      @default(0)
+  avgScore         Float    @default(0)
+  highScore        Int      @default(0)
+  highScorePlayer  String?
+  avgAccuracy      Float    @default(0)   // correct answers %
+  updatedAt        DateTime @updatedAt
+}
+
+// Aggregated stats per category — upserted after every game
+model CategoryAnalytics {
+  id              String   @id @default(uuid())
+  category        String   @unique
+  timesPlayed     Int      @default(0)
+  totalPlayers    Int      @default(0)
+  avgScore        Float    @default(0)
+  topPlayer       String?
+  topScore        Int      @default(0)
+  updatedAt       DateTime @updatedAt
+
+  @@index([category])
+}
