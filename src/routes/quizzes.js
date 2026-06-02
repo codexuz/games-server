@@ -19,6 +19,7 @@ const upload = multer({
   },
 });
 
+// ── Normalise a DB quiz for API responses ───────────────────────────────────
 function normaliseQuiz(dbQuiz) {
   return {
     id: dbQuiz.id,
@@ -29,9 +30,11 @@ function normaliseQuiz(dbQuiz) {
     questions: (dbQuiz.questions || []).map(q => ({
       id: q.id,
       text: q.text,
-      options: q.options,
-      correct: q.correct,
+      type: q.type || 'multiple_choice',
+      questionData: q.questionData || {},
       timeLimit: q.timeLimit,
+      points: q.points || 1000,
+      imageUrl: q.imageUrl || null,
     })),
   };
 }
@@ -80,10 +83,12 @@ router.post('/', authMiddleware, async (req, res, next) => {
         questions: {
           create: questions.map((q, i) => ({
             text: q.text,
-            options: q.options,
-            correct: Number(q.correct),
+            type: q.type || 'multiple_choice',
+            questionData: q.questionData || {},
             timeLimit: q.timeLimit || 20000,
+            points: q.points || 1000,
             order: i,
+            imageUrl: q.imageUrl || null,
           })),
         },
       },
@@ -120,10 +125,12 @@ router.put('/:id', authMiddleware, async (req, res, next) => {
             questions: {
               create: questions.map((q, i) => ({
                 text: q.text,
-                options: q.options,
-                correct: Number(q.correct),
+                type: q.type || 'multiple_choice',
+                questionData: q.questionData || {},
                 timeLimit: q.timeLimit || 20000,
+                points: q.points || 1000,
                 order: i,
+                imageUrl: q.imageUrl || null,
               })),
             },
           }),
@@ -190,8 +197,13 @@ router.post('/import', authMiddleware, upload.single('file'), async (req, res, n
             teacherId: req.teacher.id,
             questions: {
               create: quizData.questions.map((q, i) => ({
-                text: q.text, options: q.options,
-                correct: Number(q.correct), timeLimit: q.timeLimit || 20000, order: i,
+                text: q.text,
+                type: q.type || 'multiple_choice',
+                questionData: q.questionData || {},
+                timeLimit: q.timeLimit || 20000,
+                points: q.points || 1000,
+                order: i,
+                imageUrl: q.imageUrl || null,
               })),
             },
           },

@@ -34,14 +34,16 @@ model Quiz {
 }
 
 model Question {
-  id        String   @id @default(uuid())
-  text      String
-  options   String[]
-  correct   Int
-  timeLimit Int      @default(20000)
-  order     Int      @default(0)
-  quizId    String
-  quiz      Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  id           String   @id @default(uuid())
+  text         String
+  type         String   @default("multiple_choice")
+  questionData Json     @default("{}")
+  timeLimit    Int      @default(20000)
+  points       Int      @default(1000)
+  order        Int      @default(0)
+  imageUrl     String?
+  quizId       String
+  quiz         Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
 
   @@index([quizId])
 }
