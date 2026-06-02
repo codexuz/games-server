@@ -1,31 +1,25 @@
-const express = require('express');
-const router = express.Router();
-const { getPrisma } = require('../prisma');
+import { Router } from 'express';
+import prisma from '../prisma.js';
 
-// GET /api/leaderboard/quiz/:quizId?limit=20
-// Top players for a specific quiz (all-time best single-game scores)
+const router = Router();
+
 router.get('/quiz/:quizId', async (req, res) => {
-  const db = await getPrisma();
-  if (!db) return res.status(503).json({ error: 'Database unavailable' });
-
   const limit = Math.min(parseInt(req.query.limit) || 20, 100);
 
   try {
-    const quiz = await db.quiz.findUnique({
+    const quiz = await prisma.quiz.findUnique({
       where: { id: req.params.quizId },
       select: { id: true, title: true, category: true },
     });
     if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
 
-    // Best score per player name across all sessions for this quiz
-    const results = await db.playerResult.findMany({
+    const results = await prisma.playerResult.findMany({
       where: { session: { quizId: req.params.quizId } },
       orderBy: { score: 'desc' },
-      take: limit * 3, // over-fetch to deduplicate by player name
+      take: limit * 3,
       include: { session: { select: { playedAt: true, roomCode: true } } },
     });
 
-    // Keep only the best result per player name
     const seen = new Set();
     const deduplicated = [];
     for (const r of results) {
@@ -55,18 +49,12 @@ router.get('/quiz/:quizId', async (req, res) => {
   }
 });
 
-// GET /api/leaderboard/category/:category?limit=20
-// Top players for a quiz category
 router.get('/category/:category', async (req, res) => {
-  const db = await getPrisma();
-  if (!db) return res.status(503).json({ error: 'Database unavailable' });
-
   const limit = Math.min(parseInt(req.query.limit) || 20, 100);
   const category = decodeURIComponent(req.params.category);
 
   try {
-    // Get all quizzes in this category
-    const quizIds = await db.quiz.findMany({
+    const quizIds = await prisma.quiz.findMany({
       where: { category },
       select: { id: true },
     });
@@ -74,7 +62,7 @@ router.get('/category/:category', async (req, res) => {
 
     const quizIdList = quizIds.map(q => q.id);
 
-    const results = await db.playerResult.findMany({
+    const results = await prisma.playerResult.findMany({
       where: { session: { quizId: { in: quizIdList } } },
       orderBy: { score: 'desc' },
       take: limit * 3,
@@ -117,16 +105,11 @@ router.get('/category/:category', async (req, res) => {
   }
 });
 
-// GET /api/leaderboard/global?limit=20
-// All-time top players across all quizzes
 router.get('/global', async (req, res) => {
-  const db = await getPrisma();
-  if (!db) return res.status(503).json({ error: 'Database unavailable' });
-
   const limit = Math.min(parseInt(req.query.limit) || 20, 100);
 
   try {
-    const results = await db.playerResult.findMany({
+    const results = await prisma.playerResult.findMany({
       orderBy: { score: 'desc' },
       take: limit * 3,
       include: {
@@ -168,24 +151,16 @@ router.get('/global', async (req, res) => {
   }
 });
 
-// GET /api/leaderboard/recent?limit=10
-// Most recent game winners (latest sessions)
 router.get('/recent', async (req, res) => {
-  const db = await getPrisma();
-  if (!db) return res.status(503).json({ error: 'Database unavailable' });
-
   const limit = Math.min(parseInt(req.query.limit) || 10, 50);
 
   try {
-    const sessions = await db.gameSession.findMany({
+    const sessions = await prisma.gameSession.findMany({
       orderBy: { playedAt: 'desc' },
       take: limit,
       include: {
         quiz: { select: { title: true, category: true } },
-        playerResults: {
-          where: { rank: 1 },
-          take: 1,
-        },
+        playerResults: { where: { rank: 1 }, take: 1 },
       },
     });
 
@@ -206,4 +181,4 @@ router.get('/recent', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

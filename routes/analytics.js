@@ -1,19 +1,15 @@
-const express = require('express');
-const router = express.Router();
-const { getPrisma } = require('../prisma');
+import { Router } from 'express';
+import prisma from '../prisma.js';
 
-// GET /api/analytics/overview
-// Global stats: total sessions, total players, avg score across all quizzes
+const router = Router();
+
 router.get('/overview', async (req, res) => {
-  const db = await getPrisma();
-  if (!db) return res.status(503).json({ error: 'Database unavailable' });
-
   try {
     const [sessionCount, playerCount, quizCount, analyticsAgg] = await Promise.all([
-      db.gameSession.count(),
-      db.playerResult.count(),
-      db.quiz.count(),
-      db.quizAnalytics.aggregate({ _avg: { avgScore: true, avgAccuracy: true } }),
+      prisma.gameSession.count(),
+      prisma.playerResult.count(),
+      prisma.quiz.count(),
+      prisma.quizAnalytics.aggregate({ _avg: { avgScore: true, avgAccuracy: true } }),
     ]);
 
     res.json({
@@ -21,7 +17,7 @@ router.get('/overview', async (req, res) => {
       totalPlayers: playerCount,
       totalQuizzes: quizCount,
       avgScore: Math.round((analyticsAgg._avg.avgScore ?? 0) * 10) / 10,
-      avgAccuracy: Math.round((analyticsAgg._avg.avgAccuracy ?? 0) * 1000) / 10, // as %
+      avgAccuracy: Math.round((analyticsAgg._avg.avgAccuracy ?? 0) * 1000) / 10,
     });
   } catch (e) {
     console.error(e);
@@ -29,26 +25,19 @@ router.get('/overview', async (req, res) => {
   }
 });
 
-// GET /api/analytics/quiz/:quizId
-// Full analytics for a single quiz
 router.get('/quiz/:quizId', async (req, res) => {
-  const db = await getPrisma();
-  if (!db) return res.status(503).json({ error: 'Database unavailable' });
-
   try {
     const [quiz, analytics, sessions] = await Promise.all([
-      db.quiz.findUnique({
+      prisma.quiz.findUnique({
         where: { id: req.params.quizId },
         select: { id: true, title: true, category: true },
       }),
-      db.quizAnalytics.findUnique({ where: { quizId: req.params.quizId } }),
-      db.gameSession.findMany({
+      prisma.quizAnalytics.findUnique({ where: { quizId: req.params.quizId } }),
+      prisma.gameSession.findMany({
         where: { quizId: req.params.quizId },
         orderBy: { playedAt: 'desc' },
         take: 10,
-        include: {
-          playerResults: { orderBy: { rank: 'asc' } },
-        },
+        include: { playerResults: { orderBy: { rank: 'asc' } } },
       }),
     ]);
 
@@ -57,12 +46,8 @@ router.get('/quiz/:quizId', async (req, res) => {
     res.json({
       quiz,
       analytics: analytics ?? {
-        timesPlayed: 0,
-        totalPlayers: 0,
-        avgScore: 0,
-        highScore: 0,
-        highScorePlayer: null,
-        avgAccuracy: 0,
+        timesPlayed: 0, totalPlayers: 0, avgScore: 0,
+        highScore: 0, highScorePlayer: null, avgAccuracy: 0,
       },
       recentSessions: sessions.map(s => ({
         id: s.id,
@@ -79,17 +64,12 @@ router.get('/quiz/:quizId', async (req, res) => {
   }
 });
 
-// GET /api/analytics/category/:category
-// Analytics for a quiz category
 router.get('/category/:category', async (req, res) => {
-  const db = await getPrisma();
-  if (!db) return res.status(503).json({ error: 'Database unavailable' });
-
   try {
     const category = decodeURIComponent(req.params.category);
     const [analytics, quizzes] = await Promise.all([
-      db.categoryAnalytics.findUnique({ where: { category } }),
-      db.quiz.findMany({
+      prisma.categoryAnalytics.findUnique({ where: { category } }),
+      prisma.quiz.findMany({
         where: { category },
         include: { analytics: true, _count: { select: { sessions: true } } },
         orderBy: { createdAt: 'desc' },
@@ -98,13 +78,7 @@ router.get('/category/:category', async (req, res) => {
 
     res.json({
       category,
-      analytics: analytics ?? {
-        timesPlayed: 0,
-        totalPlayers: 0,
-        avgScore: 0,
-        topPlayer: null,
-        topScore: 0,
-      },
+      analytics: analytics ?? { timesPlayed: 0, totalPlayers: 0, avgScore: 0, topPlayer: null, topScore: 0 },
       quizzes: quizzes.map(q => ({
         id: q.id,
         title: q.title,
@@ -119,14 +93,9 @@ router.get('/category/:category', async (req, res) => {
   }
 });
 
-// GET /api/analytics/categories
-// All categories with analytics
 router.get('/categories', async (req, res) => {
-  const db = await getPrisma();
-  if (!db) return res.status(503).json({ error: 'Database unavailable' });
-
   try {
-    const categories = await db.categoryAnalytics.findMany({
+    const categories = await prisma.categoryAnalytics.findMany({
       orderBy: { timesPlayed: 'desc' },
     });
     res.json(categories);
@@ -135,17 +104,12 @@ router.get('/categories', async (req, res) => {
   }
 });
 
-// GET /api/analytics/sessions?quizId=&limit=20
-// Recent game sessions, optionally filtered by quiz
 router.get('/sessions', async (req, res) => {
-  const db = await getPrisma();
-  if (!db) return res.status(503).json({ error: 'Database unavailable' });
-
   const limit = Math.min(parseInt(req.query.limit) || 20, 100);
   const where = req.query.quizId ? { quizId: req.query.quizId } : {};
 
   try {
-    const sessions = await db.gameSession.findMany({
+    const sessions = await prisma.gameSession.findMany({
       where,
       orderBy: { playedAt: 'desc' },
       take: limit,
@@ -169,4 +133,4 @@ router.get('/sessions', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

@@ -1,28 +1,12 @@
-const { getPrisma } = require('../prisma');
+import prisma from '../prisma.js';
 
-/**
- * Persist a completed game session and update all aggregated analytics.
- * Called from Socket.io endGame handler.
- *
- * @param {{
- *   roomCode: string,
- *   quizId: string,
- *   teacherId?: string,
- *   players: Array<{ name: string, score: number, answers: Array<{ correct: boolean, timeMs: number }> }>
- * }} gameData
- */
 async function persistGameSession(gameData) {
-  const db = await getPrisma();
-  if (!db) return;
-
   const { roomCode, quizId, teacherId, players } = gameData;
 
-  // Sort by score descending to assign ranks
   const ranked = [...players].sort((a, b) => b.score - a.score);
 
   try {
-    // 1. Create GameSession + PlayerResults in one transaction
-    const session = await db.gameSession.create({
+    const session = await prisma.gameSession.create({
       data: {
         roomCode,
         quizId,
@@ -49,7 +33,6 @@ async function persistGameSession(gameData) {
       include: { playerResults: true },
     });
 
-    // 2. Update QuizAnalytics (upsert)
     const allScores = ranked.map(p => p.score);
     const allAccuracies = ranked.map(p =>
       p.answers.length > 0 ? p.answers.filter(a => a.correct).length / p.answers.length : 0
@@ -57,16 +40,15 @@ async function persistGameSession(gameData) {
     const newHighScore = Math.max(...allScores);
     const highScorePlayer = ranked[0]?.name ?? null;
 
-    const existing = await db.quizAnalytics.findUnique({ where: { quizId } });
+    const existing = await prisma.quizAnalytics.findUnique({ where: { quizId } });
 
     if (existing) {
       const totalPlayers = existing.totalPlayers + ranked.length;
       const timesPlayed = existing.timesPlayed + 1;
-      // Rolling average for score and accuracy
       const avgScore = (existing.avgScore * existing.totalPlayers + allScores.reduce((s, v) => s + v, 0)) / totalPlayers;
       const avgAccuracy = (existing.avgAccuracy * existing.totalPlayers + allAccuracies.reduce((s, v) => s + v, 0)) / totalPlayers;
 
-      await db.quizAnalytics.update({
+      await prisma.quizAnalytics.update({
         where: { quizId },
         data: {
           timesPlayed,
@@ -80,7 +62,7 @@ async function persistGameSession(gameData) {
     } else {
       const avgScore = allScores.reduce((s, v) => s + v, 0) / ranked.length;
       const avgAccuracy = allAccuracies.reduce((s, v) => s + v, 0) / ranked.length;
-      await db.quizAnalytics.create({
+      await prisma.quizAnalytics.create({
         data: {
           quizId,
           timesPlayed: 1,
@@ -93,11 +75,10 @@ async function persistGameSession(gameData) {
       });
     }
 
-    // 3. Update CategoryAnalytics (upsert by category)
-    const quiz = await db.quiz.findUnique({ where: { id: quizId }, select: { category: true } });
+    const quiz = await prisma.quiz.findUnique({ where: { id: quizId }, select: { category: true } });
     if (quiz?.category) {
       const category = quiz.category;
-      const catExisting = await db.categoryAnalytics.findUnique({ where: { category } });
+      const catExisting = await prisma.categoryAnalytics.findUnique({ where: { category } });
 
       if (catExisting) {
         const totalPlayers = catExisting.totalPlayers + ranked.length;
@@ -105,7 +86,7 @@ async function persistGameSession(gameData) {
         const avgScore = (catExisting.avgScore * catExisting.totalPlayers + allScores.reduce((s, v) => s + v, 0)) / totalPlayers;
         const newTop = newHighScore > catExisting.topScore;
 
-        await db.categoryAnalytics.update({
+        await prisma.categoryAnalytics.update({
           where: { category },
           data: {
             timesPlayed,
@@ -117,7 +98,7 @@ async function persistGameSession(gameData) {
         });
       } else {
         const avgScore = allScores.reduce((s, v) => s + v, 0) / ranked.length;
-        await db.categoryAnalytics.create({
+        await prisma.categoryAnalytics.create({
           data: {
             category,
             timesPlayed: 1,
@@ -130,11 +111,11 @@ async function persistGameSession(gameData) {
       }
     }
 
-    console.log(`✅ Session ${session.id} persisted for quiz ${quizId}`);
+    console.log(`Session ${session.id} persisted for quiz ${quizId}`);
     return session;
   } catch (e) {
     console.error('Failed to persist game session:', e.message);
   }
 }
 
-module.exports = { persistGameSession };
+export { persistGameSession };
