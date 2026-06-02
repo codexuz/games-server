@@ -15,6 +15,7 @@ model Teacher {
   createdAt DateTime      @default(now())
   quizzes   Quiz[]
   sessions  GameSession[]
+  aiJobs    AiJob[]
 }
 
 model Quiz {
@@ -26,6 +27,7 @@ model Quiz {
   questions    Question[]
   sessions     GameSession[]
   analytics    QuizAnalytics?
+  aiJobs       AiJob[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 

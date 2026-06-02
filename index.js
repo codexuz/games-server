@@ -20,8 +20,12 @@ import templatesRouter from './src/routes/templates.js';
 import analyticsRouter from './routes/analytics.js';
 import leaderboardRouter from './routes/leaderboard.js';
 import aiRouter from './src/routes/ai.js';
+import { startAiWorker } from './src/services/aiWorker.js';
 
 const logger = pino({ level: IS_PROD ? 'info' : 'debug' });
+
+// Start background workers
+startAiWorker();
 
 const app = express();
 
