@@ -110,3 +110,20 @@ model CategoryAnalytics {
 
   @@index([category])
 }
+
+// ── AI Generation Jobs ──────────────────────────────────────────────────────
+model AiJob {
+  id          String   @id @default(uuid())
+  prompt      String
+  teacherId   String
+  teacher     Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  status      String   @default("pending") // pending, processing, completed, failed
+  quizId      String?
+  quiz        Quiz?    @relation(fields: [quizId], references: [id], onDelete: SetNull)
+  error       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([teacherId])
+  @@index([status])
+}
