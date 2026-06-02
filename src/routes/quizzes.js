@@ -3,7 +3,6 @@ import multer from 'multer';
 import path from 'path';
 import prisma from '../../prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { SAMPLE_QUIZZES } from '../services/gameEngine.js';
 import {
   validateQuestions, parseJSON, parseCSV, parseExcel, parseDOCX,
 } from '../services/gameParser.js';
@@ -39,9 +38,17 @@ function normaliseQuiz(dbQuiz) {
   };
 }
 
-// Public sample quizzes
-router.get('/', (_req, res) => {
-  res.json(SAMPLE_QUIZZES);
+// Public quizzes
+router.get('/', async (req, res, next) => {
+  try {
+    const quizzes = await prisma.quiz.findMany({
+      include: { questions: { orderBy: { order: 'asc' } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json(quizzes.map(normaliseQuiz));
+  } catch (e) {
+    next(e);
+  }
 });
 
 // Teacher's own quizzes

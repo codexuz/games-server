@@ -2,50 +2,7 @@ import prisma from '../../prisma.js';
 import { persistGameSession } from '../../services/analytics.js';
 import { socketHandler } from '../middleware/errorHandler.js';
 
-// ── Sample quizzes using new polymorphic question format ─────────────────────
-const SAMPLE_QUIZZES = [
-  {
-    id: 'sample_1',
-    title: 'General Knowledge',
-    category: 'General',
-    isBuiltIn: true,
-    questions: [
-      { id: 's1q1', text: 'What is the capital of France?', type: 'multiple_choice', questionData: { options: ['London', 'Berlin', 'Paris', 'Madrid'], correctIndex: 2 }, timeLimit: 20000, points: 1000 },
-      { id: 's1q2', text: 'The Great Wall of China is visible from space.', type: 'true_false', questionData: { correctAnswer: false }, timeLimit: 15000, points: 1000 },
-      { id: 's1q3', text: 'Who wrote Romeo and Juliet?', type: 'type_answer', questionData: { acceptedAnswers: ['Shakespeare', 'William Shakespeare', 'W. Shakespeare'], caseSensitive: false }, timeLimit: 25000, points: 1000 },
-      { id: 's1q4', text: 'What is the largest ocean?', type: 'multiple_choice', questionData: { options: ['Atlantic', 'Indian', 'Arctic', 'Pacific'], correctIndex: 3 }, timeLimit: 20000, points: 1000 },
-      { id: 's1q5', text: 'What element has the symbol "Au"?', type: 'type_answer', questionData: { acceptedAnswers: ['Gold', 'gold'], caseSensitive: false }, timeLimit: 20000, points: 1000 },
-    ],
-  },
-  {
-    id: 'sample_2',
-    title: 'Science & Tech',
-    category: 'Science',
-    isBuiltIn: true,
-    questions: [
-      { id: 's2q1', text: 'What does CPU stand for?', type: 'multiple_choice', questionData: { options: ['Central Power Unit', 'Central Processing Unit', 'Core Processing Unit', 'Central Program Utility'], correctIndex: 1 }, timeLimit: 15000, points: 1000 },
-      { id: 's2q2', text: 'HTML is a programming language.', type: 'true_false', questionData: { correctAnswer: false }, timeLimit: 15000, points: 1000 },
-      { id: 's2q3', text: 'Who founded Microsoft?', type: 'type_answer', questionData: { acceptedAnswers: ['Bill Gates', 'Gates', 'Bill Gates and Paul Allen'], caseSensitive: false }, timeLimit: 20000, points: 1000 },
-      { id: 's2q4', text: 'What does HTTP stand for?', type: 'multiple_choice', questionData: { options: ['HyperText Transfer Protocol', 'High Transfer Tech Protocol', 'HyperText Tech Program', 'High Text Transfer Protocol'], correctIndex: 0 }, timeLimit: 15000, points: 1000 },
-      { id: 's2q5', text: 'Mars is the closest planet to the Sun.', type: 'true_false', questionData: { correctAnswer: false }, timeLimit: 15000, points: 1000 },
-    ],
-  },
-  {
-    id: 'sample_3',
-    title: 'Sports Trivia',
-    category: 'Sports',
-    isBuiltIn: true,
-    questions: [
-      { id: 's3q1', text: 'How many players in a soccer team on the field?', type: 'slider', questionData: { min: 5, max: 15, step: 1, correctValue: 11, tolerance: 0 }, timeLimit: 15000, points: 1000 },
-      { id: 's3q2', text: 'How many rings are on the Olympic flag?', type: 'multiple_choice', questionData: { options: ['4', '5', '6', '7'], correctIndex: 1 }, timeLimit: 15000, points: 1000 },
-      { id: 's3q3', text: 'Basketball was invented in Canada.', type: 'true_false', questionData: { correctAnswer: true }, timeLimit: 15000, points: 1000 },
-      { id: 's3q4', text: 'How many holes in a standard golf course?', type: 'type_answer', questionData: { acceptedAnswers: ['18', 'eighteen'], caseSensitive: false }, timeLimit: 15000, points: 1000 },
-      { id: 's3q5', text: 'What is your favorite sport?', type: 'poll', questionData: { options: ['Soccer', 'Basketball', 'Tennis', 'Swimming'] }, timeLimit: 15000, points: 0 },
-    ],
-  },
-];
 
-export { SAMPLE_QUIZZES };
 
 // rooms[code] = room state; socketMeta[socketId] = { roomCode, role }
 const rooms = {};
@@ -227,13 +184,11 @@ function computePollResults(room, qIndex) {
 
 // ── Quiz lookup ─────────────────────────────────────────────────────────────
 async function findQuiz(quizId) {
-  const sample = SAMPLE_QUIZZES.find(q => q.id === quizId);
-  if (sample) return sample;
-  const dbQuiz = await prisma.quiz.findUnique({
+  const db = await prisma.quiz.findUnique({
     where: { id: quizId },
     include: { questions: { orderBy: { order: 'asc' } } },
   });
-  return dbQuiz ? normaliseQuiz(dbQuiz) : null;
+  return db ? normaliseQuiz(db) : null;
 }
 
 // ── Advance to the next question ────────────────────────────────────────────

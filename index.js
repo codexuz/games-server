@@ -19,6 +19,7 @@ import quizzesRouter from './src/routes/quizzes.js';
 import templatesRouter from './src/routes/templates.js';
 import analyticsRouter from './routes/analytics.js';
 import leaderboardRouter from './routes/leaderboard.js';
+import aiRouter from './src/routes/ai.js';
 
 const logger = pino({ level: IS_PROD ? 'info' : 'debug' });
 
@@ -65,6 +66,7 @@ app.use('/api/teacher/quizzes', quizzesRouter);   // backwards-compat alias
 app.use('/api/templates', templatesRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/leaderboard', leaderboardRouter);
+app.use('/api/ai', aiRouter);
 
 app.use(errorHandler);
 
