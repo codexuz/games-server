@@ -1,6 +1,9 @@
 import { parse } from 'csv-parse/sync';
 import XLSX from 'xlsx';
 import mammoth from 'mammoth';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
 
 // ── Backward-compatibility: auto-convert old format → multiple_choice ───────
 function migrateOldFormat(q) {
@@ -205,6 +208,58 @@ export async function parseDOCX(buffer) {
   if (currentQ && currentQuiz) { finaliseDocxQuestion(currentQ); currentQuiz.questions.push(currentQ); }
   if (currentQuiz) quizzes.push(currentQuiz);
   return quizzes;
+}
+
+// ── File-to-text extractor for AI context ───────────────────────────────────
+// Returns plain text from uploaded files so the AI worker can use it as context.
+const EXTRACT_MAX_CHARS = 12000;
+
+export async function extractTextFromFile(buffer, mimetype, originalname) {
+  const ext = (originalname.split('.').pop() || '').toLowerCase();
+
+  if (mimetype === 'application/pdf' || ext === 'pdf') {
+    const data = await pdfParse(buffer);
+    return data.text.slice(0, EXTRACT_MAX_CHARS);
+  }
+
+  if (mimetype === 'text/plain' || ext === 'txt') {
+    return buffer.toString('utf8').slice(0, EXTRACT_MAX_CHARS);
+  }
+
+  if (
+    mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    ext === 'docx'
+  ) {
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value.slice(0, EXTRACT_MAX_CHARS);
+  }
+
+  if (
+    mimetype === 'application/msword' ||
+    ext === 'doc'
+  ) {
+    // mammoth handles .doc with limited fidelity but works for text extraction
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value.slice(0, EXTRACT_MAX_CHARS);
+  }
+
+  if (
+    mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    mimetype === 'application/vnd.ms-excel' ||
+    ext === 'xlsx' || ext === 'xls'
+  ) {
+    const wb = XLSX.read(buffer, { type: 'buffer' });
+    const lines = [];
+    for (const sheetName of wb.SheetNames) {
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+      for (const row of rows) {
+        lines.push(row.join('\t'));
+      }
+    }
+    return lines.join('\n').slice(0, EXTRACT_MAX_CHARS);
+  }
+
+  throw new Error(`Unsupported file type: .${ext}`);
 }
 
 /**

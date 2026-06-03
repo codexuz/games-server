@@ -94,12 +94,15 @@ function calcScore(type, questionData, answer, timeMs, timeLimitMs, maxPoints) {
       break;
 
     case 'type_answer': {
-      const playerText = String(answer.text || '').trim();
       const caseSensitive = questionData.caseSensitive ?? false;
-      correct = (questionData.acceptedAnswers || []).some(accepted => {
-        if (caseSensitive) return playerText === accepted;
-        return playerText.toLowerCase() === accepted.toLowerCase();
-      });
+      const normalize = (s) => {
+        let t = String(s).trim().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+        return caseSensitive ? t : t.toLowerCase();
+      };
+      const playerNorm = normalize(answer.text || '');
+      correct = (questionData.acceptedAnswers || []).some(accepted =>
+        playerNorm === normalize(accepted)
+      );
       accuracy = correct ? 1 : 0;
       break;
     }

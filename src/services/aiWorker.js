@@ -32,7 +32,7 @@ async function processAiJobs() {
 
     // Call OpenAI
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1-mini',
       response_format: { type: 'json_object' },
       messages: [
         {
@@ -82,7 +82,7 @@ Respond ONLY with a JSON object in the following format:
 }
 
 CRITICAL RULES:
-1. Include between 5 and 10 questions.
+1. Include between 15 and 50 questions.
 2. Mix the question types! Do not just use multiple_choice. Try to use true_false, type_answer, slider, and ordering where they make sense.
 3. For 'multiple_choice', ensure options has 2-8 strings, and correctIndex is an integer.
 4. For 'slider', ensure min, max, step, correctValue, and tolerance are all numbers.
