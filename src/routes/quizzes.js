@@ -8,6 +8,15 @@ import {
 } from '../services/gameParser.js';
 
 const router = Router();
+
+const QUIZ_PAGE_SIZE = 12;
+
+function parsePage(query) {
+  const page = Math.max(1, parseInt(query.page) || 1);
+  const limit = Math.min(Math.max(1, parseInt(query.limit) || QUIZ_PAGE_SIZE), 100);
+  return { page, limit };
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
@@ -40,37 +49,65 @@ function normaliseQuiz(dbQuiz) {
   };
 }
 
-// Public quizzes — no auth required, returns only public+published quizzes
+// Public quizzes — no auth required, returns only public+published quizzes (paginated)
 router.get('/', async (req, res, next) => {
   try {
-    const quizzes = await prisma.quiz.findMany({
-      where: { type: 'public', published: true },
-      include: { questions: { orderBy: { order: 'asc' } } },
-      orderBy: { createdAt: 'desc' },
+    const { page, limit } = parsePage(req.query);
+    const offset = (page - 1) * limit;
+    const where = { type: 'public', published: true };
+
+    const [total, quizzes] = await prisma.$transaction([
+      prisma.quiz.count({ where }),
+      prisma.quiz.findMany({
+        where,
+        include: { questions: { orderBy: { order: 'asc' } } },
+        orderBy: { createdAt: 'desc' },
+        skip: offset,
+        take: limit,
+      }),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+    res.json({
+      quizzes: quizzes.map(normaliseQuiz),
+      pagination: { page, limit, total, totalPages, hasMore: page < totalPages },
     });
-    res.json(quizzes.map(normaliseQuiz));
   } catch (e) {
     next(e);
   }
 });
 
-// Teacher's own quizzes — all of them regardless of type/published
+// Teacher's own quizzes — all of them regardless of type/published (paginated)
 router.get('/mine', authMiddleware, async (req, res, next) => {
   try {
-    const quizzes = await prisma.quiz.findMany({
-      where: { teacherId: req.teacher.id },
-      include: {
-        questions: { orderBy: { order: 'asc' } },
-        _count: { select: { questions: true, sessions: true } },
-        analytics: true,
-      },
-      orderBy: { createdAt: 'desc' },
+    const { page, limit } = parsePage(req.query);
+    const offset = (page - 1) * limit;
+    const where = { teacherId: req.teacher.id };
+
+    const [total, quizzes] = await prisma.$transaction([
+      prisma.quiz.count({ where }),
+      prisma.quiz.findMany({
+        where,
+        include: {
+          questions: { orderBy: { order: 'asc' } },
+          _count: { select: { questions: true, sessions: true } },
+          analytics: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: offset,
+        take: limit,
+      }),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+    res.json({
+      quizzes: quizzes.map(q => ({
+        ...normaliseQuiz(q),
+        sessionsPlayed: q._count.sessions,
+        analytics: q.analytics ?? null,
+      })),
+      pagination: { page, limit, total, totalPages, hasMore: page < totalPages },
     });
-    res.json(quizzes.map(q => ({
-      ...normaliseQuiz(q),
-      sessionsPlayed: q._count.sessions,
-      analytics: q.analytics ?? null,
-    })));
   } catch (e) {
     next(e);
   }

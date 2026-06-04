@@ -3,8 +3,34 @@ import prisma from '../prisma.js';
 
 const router = Router();
 
+const PAGE_SIZE = 20;
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+function parsePage(query) {
+  const page = Math.max(1, parseInt(query.page) || 1);
+  const limit = Math.min(Math.max(1, parseInt(query.limit) || PAGE_SIZE), 100);
+  return { page, limit };
+}
+
+// Deduplicate results by player name (keep best score), returns { items, total }
+function deduplicateByPlayer(results, limit, offset) {
+  const bestByPlayer = new Map();
+  for (const r of results) {
+    const existing = bestByPlayer.get(r.playerName);
+    if (!existing || r.score > existing.score) bestByPlayer.set(r.playerName, r);
+  }
+  const sorted = [...bestByPlayer.values()].sort((a, b) => b.score - a.score);
+  const total = sorted.length;
+  const page = sorted.slice(offset, offset + limit);
+  return { items: page, total };
+}
+
+// ── Quiz leaderboard ──────────────────────────────────────────────────────────
+
 router.get('/quiz/:quizId', async (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+  const { page, limit } = parsePage(req.query);
+  const offset = (page - 1) * limit;
 
   try {
     const quiz = await prisma.quiz.findUnique({
@@ -13,27 +39,21 @@ router.get('/quiz/:quizId', async (req, res) => {
     });
     if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
 
-    const results = await prisma.playerResult.findMany({
+    // Fetch enough rows to deduplicate across pages (cap at 5000)
+    const raw = await prisma.playerResult.findMany({
       where: { session: { quizId: req.params.quizId } },
       orderBy: { score: 'desc' },
-      take: limit * 3,
+      take: 5000,
       include: { session: { select: { playedAt: true, roomCode: true } } },
     });
 
-    const seen = new Set();
-    const deduplicated = [];
-    for (const r of results) {
-      if (!seen.has(r.playerName)) {
-        seen.add(r.playerName);
-        deduplicated.push(r);
-        if (deduplicated.length >= limit) break;
-      }
-    }
+    const { items, total } = deduplicateByPlayer(raw, limit, offset);
+    const totalPages = Math.ceil(total / limit);
 
     res.json({
       quiz,
-      leaderboard: deduplicated.map((r, i) => ({
-        rank: i + 1,
+      leaderboard: items.map((r, i) => ({
+        rank: offset + i + 1,
         playerName: r.playerName,
         score: r.score,
         correctAnswers: r.correctAnswers,
@@ -42,6 +62,7 @@ router.get('/quiz/:quizId', async (req, res) => {
         avgAnswerTimeMs: r.avgAnswerTimeMs,
         achievedAt: r.session.playedAt,
       })),
+      pagination: { page, limit, total, totalPages, hasMore: page < totalPages },
     });
   } catch (e) {
     console.error(e);
@@ -49,8 +70,11 @@ router.get('/quiz/:quizId', async (req, res) => {
   }
 });
 
+// ── Category leaderboard ──────────────────────────────────────────────────────
+
 router.get('/category/:category', async (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+  const { page, limit } = parsePage(req.query);
+  const offset = (page - 1) * limit;
   const category = decodeURIComponent(req.params.category);
 
   try {
@@ -58,38 +82,28 @@ router.get('/category/:category', async (req, res) => {
       where: { category },
       select: { id: true },
     });
-    if (quizIds.length === 0) return res.json({ category, leaderboard: [] });
+    if (quizIds.length === 0) {
+      return res.json({ category, leaderboard: [], pagination: { page: 1, limit, total: 0, totalPages: 0, hasMore: false } });
+    }
 
-    const quizIdList = quizIds.map(q => q.id);
-
-    const results = await prisma.playerResult.findMany({
-      where: { session: { quizId: { in: quizIdList } } },
+    const raw = await prisma.playerResult.findMany({
+      where: { session: { quizId: { in: quizIds.map(q => q.id) } } },
       orderBy: { score: 'desc' },
-      take: limit * 3,
+      take: 5000,
       include: {
         session: {
-          select: {
-            playedAt: true,
-            quiz: { select: { title: true } },
-          },
+          select: { playedAt: true, quiz: { select: { title: true } } },
         },
       },
     });
 
-    const seen = new Set();
-    const deduplicated = [];
-    for (const r of results) {
-      if (!seen.has(r.playerName)) {
-        seen.add(r.playerName);
-        deduplicated.push(r);
-        if (deduplicated.length >= limit) break;
-      }
-    }
+    const { items, total } = deduplicateByPlayer(raw, limit, offset);
+    const totalPages = Math.ceil(total / limit);
 
     res.json({
       category,
-      leaderboard: deduplicated.map((r, i) => ({
-        rank: i + 1,
+      leaderboard: items.map((r, i) => ({
+        rank: offset + i + 1,
         playerName: r.playerName,
         score: r.score,
         correctAnswers: r.correctAnswers,
@@ -98,6 +112,7 @@ router.get('/category/:category', async (req, res) => {
         quizTitle: r.session.quiz.title,
         achievedAt: r.session.playedAt,
       })),
+      pagination: { page, limit, total, totalPages, hasMore: page < totalPages },
     });
   } catch (e) {
     console.error(e);
@@ -105,36 +120,29 @@ router.get('/category/:category', async (req, res) => {
   }
 });
 
+// ── Global leaderboard ────────────────────────────────────────────────────────
+
 router.get('/global', async (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+  const { page, limit } = parsePage(req.query);
+  const offset = (page - 1) * limit;
 
   try {
-    const results = await prisma.playerResult.findMany({
+    const raw = await prisma.playerResult.findMany({
       orderBy: { score: 'desc' },
-      take: limit * 3,
+      take: 5000,
       include: {
         session: {
-          select: {
-            playedAt: true,
-            quiz: { select: { title: true, category: true } },
-          },
+          select: { playedAt: true, quiz: { select: { title: true, category: true } } },
         },
       },
     });
 
-    const seen = new Set();
-    const deduplicated = [];
-    for (const r of results) {
-      if (!seen.has(r.playerName)) {
-        seen.add(r.playerName);
-        deduplicated.push(r);
-        if (deduplicated.length >= limit) break;
-      }
-    }
+    const { items, total } = deduplicateByPlayer(raw, limit, offset);
+    const totalPages = Math.ceil(total / limit);
 
     res.json({
-      leaderboard: deduplicated.map((r, i) => ({
-        rank: i + 1,
+      leaderboard: items.map((r, i) => ({
+        rank: offset + i + 1,
         playerName: r.playerName,
         score: r.score,
         correctAnswers: r.correctAnswers,
@@ -144,6 +152,7 @@ router.get('/global', async (req, res) => {
         category: r.session.quiz.category,
         achievedAt: r.session.playedAt,
       })),
+      pagination: { page, limit, total, totalPages, hasMore: page < totalPages },
     });
   } catch (e) {
     console.error(e);
@@ -151,22 +160,31 @@ router.get('/global', async (req, res) => {
   }
 });
 
+// ── Recent winners ────────────────────────────────────────────────────────────
+
 router.get('/recent', async (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+  const { page, limit } = parsePage(req.query);
+  const offset = (page - 1) * limit;
 
   try {
-    const sessions = await prisma.gameSession.findMany({
-      orderBy: { playedAt: 'desc' },
-      take: limit,
-      include: {
-        quiz: { select: { title: true, category: true } },
-        playerResults: { where: { rank: 1 }, take: 1 },
-      },
-    });
+    const [total, sessions] = await prisma.$transaction([
+      prisma.gameSession.count({ where: { playerResults: { some: { rank: 1 } } } }),
+      prisma.gameSession.findMany({
+        where: { playerResults: { some: { rank: 1 } } },
+        orderBy: { playedAt: 'desc' },
+        skip: offset,
+        take: limit,
+        include: {
+          quiz: { select: { title: true, category: true } },
+          playerResults: { where: { rank: 1 }, take: 1 },
+        },
+      }),
+    ]);
 
-    res.json(sessions
-      .filter(s => s.playerResults.length > 0)
-      .map(s => ({
+    const totalPages = Math.ceil(total / limit);
+
+    res.json({
+      recent: sessions.map(s => ({
         sessionId: s.id,
         quizTitle: s.quiz.title,
         category: s.quiz.category,
@@ -174,8 +192,9 @@ router.get('/recent', async (req, res) => {
         winnerScore: s.playerResults[0].score,
         playerCount: s.playerCount,
         playedAt: s.playedAt,
-      }))
-    );
+      })),
+      pagination: { page, limit, total, totalPages, hasMore: page < totalPages },
+    });
   } catch (e) {
     res.status(500).json({ error: 'Failed to load recent winners' });
   }
