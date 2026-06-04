@@ -249,7 +249,7 @@ function showQuestionResult(io, code) {
 
   const playerResults = Object.values(room.players).map(p => {
     const ans = p.answers[room.currentQ];
-    return { name: p.name, score: p.score, correct: ans?.correct ?? false, points: ans?.points ?? 0 };
+    return { name: p.name, avatar: p.avatar, score: p.score, correct: ans?.correct ?? false, points: ans?.points ?? 0 };
   });
 
   io.to(code).emit('game:result', {
@@ -271,7 +271,7 @@ async function endGame(io, code) {
   room.phase = 'ended';
 
   const leaderboard = Object.values(room.players)
-    .map(p => ({ name: p.name, score: p.score }))
+    .map(p => ({ name: p.name, avatar: p.avatar, score: p.score }))
     .sort((a, b) => b.score - a.score);
 
   io.to(code).emit('game:ended', { leaderboard, reason: 'complete' });
@@ -315,13 +315,14 @@ export function registerSocketHandlers(io) {
       socket.emit('host:created', { code, quiz });
     }));
 
-    socket.on('player:join', socketHandler(({ code, playerName }) => {
+    socket.on('player:join', socketHandler(({ code, playerName, avatar }) => {
       const room = rooms[code];
       if (!room) return socket.emit('error', 'Room not found');
       if (room.phase !== 'lobby') return socket.emit('error', 'Game already started');
 
       const safeName = String(playerName).trim().slice(0, 30) || 'Player';
-      room.players[socket.id] = { name: safeName, score: 0, answers: [], ready: false };
+      const safeAvatar = String(avatar || 'panda').replace(/[^a-z]/g, '');
+      room.players[socket.id] = { name: safeName, avatar: safeAvatar, score: 0, answers: [], ready: false };
       socketMeta[socket.id] = { roomCode: code, role: 'player' };
       socket.join(code);
 
@@ -332,7 +333,7 @@ export function registerSocketHandlers(io) {
       });
 
       io.to(code).emit('room:players', {
-        players: Object.values(room.players).map(p => ({ name: p.name, score: p.score })),
+        players: Object.values(room.players).map(p => ({ name: p.name, avatar: p.avatar, score: p.score })),
       });
     }));
 
@@ -420,7 +421,7 @@ export function registerSocketHandlers(io) {
 
       delete room.players[socket.id];
       io.to(roomCode).emit('room:players', {
-        players: Object.values(room.players).map(p => ({ name: p.name, score: p.score })),
+        players: Object.values(room.players).map(p => ({ name: p.name, avatar: p.avatar, score: p.score })),
       });
     });
   });
