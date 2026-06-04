@@ -22,6 +22,8 @@ model Quiz {
   id           String        @id @default(uuid())
   title        String
   category     String?
+  type         String        @default("public")   // "public" | "private"
+  published    Boolean       @default(true)
   teacherId    String
   teacher      Teacher       @relation(fields: [teacherId], references: [id], onDelete: Cascade)
   questions    Question[]
@@ -33,6 +35,7 @@ model Quiz {
 
   @@index([teacherId])
   @@index([category])
+  @@index([type, published])
 }
 
 model Question {

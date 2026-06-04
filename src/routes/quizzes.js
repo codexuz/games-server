@@ -24,6 +24,8 @@ function normaliseQuiz(dbQuiz) {
     id: dbQuiz.id,
     title: dbQuiz.title,
     category: dbQuiz.category,
+    type: dbQuiz.type || 'public',
+    published: dbQuiz.published ?? true,
     teacherId: dbQuiz.teacherId,
     createdAt: dbQuiz.createdAt,
     questions: (dbQuiz.questions || []).map(q => ({
@@ -38,10 +40,11 @@ function normaliseQuiz(dbQuiz) {
   };
 }
 
-// Public quizzes
+// Public quizzes — no auth required, returns only public+published quizzes
 router.get('/', async (req, res, next) => {
   try {
     const quizzes = await prisma.quiz.findMany({
+      where: { type: 'public', published: true },
       include: { questions: { orderBy: { order: 'asc' } } },
       orderBy: { createdAt: 'desc' },
     });
@@ -51,7 +54,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// Teacher's own quizzes
+// Teacher's own quizzes — all of them regardless of type/published
 router.get('/mine', authMiddleware, async (req, res, next) => {
   try {
     const quizzes = await prisma.quiz.findMany({
@@ -73,10 +76,40 @@ router.get('/mine', authMiddleware, async (req, res, next) => {
   }
 });
 
+// Single quiz by id — public+published accessible to anyone; private/draft requires auth+ownership
+router.get('/:id', async (req, res, next) => {
+  try {
+    const quiz = await prisma.quiz.findUnique({
+      where: { id: req.params.id },
+      include: { questions: { orderBy: { order: 'asc' } } },
+    });
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
+
+    const isPubliclyVisible = quiz.type === 'public' && quiz.published;
+    if (isPubliclyVisible) return res.json(normaliseQuiz(quiz));
+
+    // Private or unpublished — must be authenticated owner
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) return res.status(403).json({ error: 'Forbidden' });
+    let teacher;
+    try {
+      const jwt = (await import('jsonwebtoken')).default;
+      const { JWT_SECRET } = await import('../config/env.js');
+      teacher = jwt.verify(authHeader.slice(7), JWT_SECRET);
+    } catch {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (quiz.teacherId !== teacher.id) return res.status(403).json({ error: 'Forbidden' });
+    res.json(normaliseQuiz(quiz));
+  } catch (e) {
+    next(e);
+  }
+});
+
 // Create quiz
 router.post('/', authMiddleware, async (req, res, next) => {
   try {
-    const { title, category, questions } = req.body;
+    const { title, category, type, published, questions } = req.body;
     if (!title || !questions?.length) return res.status(400).json({ error: 'Title and questions required' });
 
     const validationError = validateQuestions(questions);
@@ -86,6 +119,8 @@ router.post('/', authMiddleware, async (req, res, next) => {
       data: {
         title,
         category: category || null,
+        type: type === 'private' ? 'private' : 'public',
+        published: published !== undefined ? Boolean(published) : true,
         teacherId: req.teacher.id,
         questions: {
           create: questions.map((q, i) => ({
@@ -114,8 +149,10 @@ router.put('/:id', authMiddleware, async (req, res, next) => {
     if (!existing) return res.status(404).json({ error: 'Quiz not found' });
     if (existing.teacherId !== req.teacher.id) return res.status(403).json({ error: 'Not your quiz' });
 
-    const { title, category, questions } = req.body;
-    if (!title && !questions) return res.status(400).json({ error: 'Nothing to update' });
+    const { title, category, type, published, questions } = req.body;
+    if (!title && !questions && type === undefined && published === undefined && category === undefined) {
+      return res.status(400).json({ error: 'Nothing to update' });
+    }
     if (questions) {
       const validationError = validateQuestions(questions);
       if (validationError) return res.status(400).json({ error: validationError });
@@ -128,6 +165,8 @@ router.put('/:id', authMiddleware, async (req, res, next) => {
         data: {
           ...(title && { title }),
           ...(category !== undefined && { category: category || null }),
+          ...(type !== undefined && { type: type === 'private' ? 'private' : 'public' }),
+          ...(published !== undefined && { published: Boolean(published) }),
           ...(questions && {
             questions: {
               create: questions.map((q, i) => ({
@@ -201,6 +240,8 @@ router.post('/import', authMiddleware, upload.single('file'), async (req, res, n
           data: {
             title: quizData.title,
             category: quizData.category || null,
+            type: quizData.type === 'private' ? 'private' : 'public',
+            published: quizData.published !== undefined ? Boolean(quizData.published) : true,
             teacherId: req.teacher.id,
             questions: {
               create: quizData.questions.map((q, i) => ({

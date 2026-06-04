@@ -108,11 +108,13 @@ CRITICAL RULES:
       order: i,
     }));
 
-    // Save generated quiz to DB
+    // Save generated quiz to DB — AI quizzes are public by default
     const quiz = await prisma.quiz.create({
       data: {
         title: resultJson.title || 'AI Generated Quiz',
         category: resultJson.category || 'General',
+        type: 'public',
+        published: true,
         teacherId: job.teacherId,
         questions: {
           create: questions,
