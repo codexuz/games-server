@@ -54,11 +54,19 @@ function shuffleArray(arr) {
 }
 
 // ── Strip correct answers from questionData before sending to players ───────
-function getPlayerQuestionData(q) {
+// For multiple_choice we shuffle the options per-question and remember the
+// display→original index mapping on the room so submitted indices can be
+// translated back before scoring (the correct answer never leaves the server).
+function getPlayerQuestionData(q, room) {
   const d = q.questionData;
+  if (room) room.optionOrder = null;
   switch (q.type) {
-    case 'multiple_choice':
-      return { options: d.options };
+    case 'multiple_choice': {
+      const options = d.options || [];
+      const order = shuffleArray(options.map((_, i) => i)); // display idx → original idx
+      if (room) room.optionOrder = order;
+      return { options: order.map(i => options[i]) };
+    }
     case 'true_false':
       return {};
     case 'type_answer':
@@ -211,7 +219,7 @@ function startNextQuestion(io, code) {
     total: room.quiz.questions.length,
     text: q.text,
     type: q.type,
-    questionData: getPlayerQuestionData(q),
+    questionData: getPlayerQuestionData(q, room),
     timeLimit: q.timeLimit,
     points: q.points,
     imageUrl: q.imageUrl,
@@ -227,6 +235,18 @@ function showQuestionResult(io, code) {
   room.phase = 'result';
 
   const q = room.quiz.questions[room.currentQ];
+
+  // Server-side skip enforcement: any player without a recorded answer for this
+  // question is marked incorrect (0 points). This keeps answers[] dense and
+  // aligned by question index, and never trusts the client to report a skip.
+  for (const p of Object.values(room.players)) {
+    if (!p.answers[room.currentQ]) {
+      p.answers[room.currentQ] = {
+        answerData: null, correct: false, points: 0, timeMs: q.timeLimit, accuracy: 0, skipped: true,
+      };
+    }
+  }
+
   const playerResults = Object.values(room.players).map(p => {
     const ans = p.answers[room.currentQ];
     return { name: p.name, score: p.score, correct: ans?.correct ?? false, points: ans?.points ?? 0 };
@@ -331,18 +351,28 @@ export function registerSocketHandlers(io) {
       if (!player) return;
 
       const q = room.quiz.questions[room.currentQ];
-      if (player.answers.length > room.currentQ) return; // already answered
+      if (player.answers[room.currentQ]) return; // already answered this question
 
       // Validate the answer format against the question type
       if (!validateAnswer(q.type, answer)) return;
 
+      // Translate a shuffled multiple_choice selection back to the original index
+      let scoringAnswer = answer;
+      if (q.type === 'multiple_choice' && Array.isArray(room.optionOrder)) {
+        const originalIndex = room.optionOrder[answer.index];
+        if (originalIndex === undefined) return; // index out of range
+        scoringAnswer = { ...answer, index: originalIndex };
+      }
+
       const timeMs = Date.now() - room.questionStart;
       const { points, correct, accuracy } = calcScore(
-        q.type, q.questionData, answer, timeMs, q.timeLimit, q.points
+        q.type, q.questionData, scoringAnswer, timeMs, q.timeLimit, q.points
       );
 
       player.score += points;
-      player.answers.push({ answerData: answer, correct, points, timeMs, accuracy });
+      // Store indexed by question position so a skipped question never shifts
+      // later answers into the wrong slot.
+      player.answers[room.currentQ] = { answerData: scoringAnswer, correct, points, timeMs, accuracy };
       room.answerCount++;
 
       socket.emit('player:answer_ack', { correct, points, totalScore: player.score, accuracy });
